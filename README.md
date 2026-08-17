@@ -1,161 +1,189 @@
-# Card Generation Pipeline
+# Collection Factory
 
-Инструмент автоматического производства графики для коллекционных карточек.
+A tool that produces artwork for collectible cards.
 
-**Вход:** тема сета + свободные пожелания продюсера.
-**Выход:** 3–5 вариантов готового сета + метрики прогона.
+**In:** a set theme plus free-form wishes from the producer.
+**Out:** 3–5 variants of the set, finished cards, and the run's metrics.
 
-## Запуск
+## Running it
 
 ```
 start.bat
 ```
 
-Двойной клик открывает страницу `http://127.0.0.1:8720`: тема, пожелания, состав набора,
-ключ API, кнопка. Дальше видны стадии, прогресс и галерея готовых карточек.
-Перед запуском должен работать ComfyUI на порту 8188. Подробности — `docs/README_studio.md`.
+A double-click opens `http://127.0.0.1:8720`: theme, wishes, set composition, API key, one
+button. From there the page shows which stage is running, how far along it is, and the
+finished cards as a gallery. ComfyUI must be running on port 8188 first — see
+`docs/README_studio.md` and `docs/COMFYUI_SETUP.md`.
 
-Тот же прогон из командной строки — для расписания и скриптов:
+The same run from the command line, for scripting and scheduled jobs:
 
 ```bash
-python pipeline/orchestrator.py --theme "Кино-коллекция: нуар" \
-    --wishes "больше латуни и дождя" --variants 3 --seeds-per-card 3
+python pipeline/orchestrator.py --theme "Movie collection: film noir" \
+    --wishes "more brass and rain" --variants 3 --seeds-per-card 3
 ```
 
-Обе точки входа вызывают одну и ту же `produce()`; страница не добавляет логики, она
-показывает прогресс и передаёт выключатель.
+Both entry points call the same `produce()`. The page adds no logic of its own — it renders
+progress and forwards a cancel switch — so a run behaves identically whichever way it starts.
+
+```bash
+pip install -r requirements.txt
+```
 
 ---
 
-## Архитектура
+## Architecture
 
 ```
-   тема + пожелания продюсера
+   theme + producer's wishes
               │
    ┌──────────▼──────────┐
-   │ 0. Style Bible      │  style/style_bible.md + categories.json
-   │    (офлайн, версии) │  формализация стиля из референсов
+   │ 0. Style bible      │  style/style_bible.md + categories.json
+   │    (offline, versioned) │  the reference cards, formalised
    └──────────┬──────────┘
               │
    ┌──────────▼──────────┐
-   │ 1. Идеация (LLM)    │  N объектов, разложены по слот-плану категорий
-   │                     │  проверки: IP, повторы, читаемость, возрастная политика
+   │ 1. Ideation (LLM)   │  N objects, laid out over a fixed slot plan
+   │                     │  checked for IP, repeats, readability, age rating
    └──────────┬──────────┘
               │
    ┌──────────▼──────────┐
-   │ 2. Компиляция       │  детерминированная сборка из слотов:
-   │    промптов         │  объект + поза + кадр + категория + фон + стиль
+   │ 2. Prompt assembly  │  deterministic, from slots: object + pose +
+   │                     │  framing + category + background + style
    └──────────┬──────────┘
               │
    ┌──────────▼──────────┐
-   │ 3. Ревью продюсера  │  пауза до GPU: правка объекта, позы, промпта
-   │    (интерфейс)      │  правка содержания пересобирает промпт из шаблонов
+   │ 3. Producer review  │  a pause before the GPU: edit the object, the
+   │    (the page)       │  pose or the prompt; content edits recompile
    └──────────┬──────────┘
               │
    ┌──────────▼──────────┐
-   │ 4. Генерация        │  ComfyUI, N кандидатов на карточку
+   │ 4. Generation       │  ComfyUI, N candidates per card
    └──────────┬──────────┘
               │
    ┌──────────▼──────────┐
-   │ 5. Ремонт кадра     │  reframe.py — зум по маске до нужной доли кадра
-   │    и фона кат. 1    │  postprocess_cat1.py — фон перерисовывается кодом
-   └──────────┬──────────┘  детерминированно, до оценки, для всех кандидатов
+   │ 5. Framing and      │  reframe.py — zoom by the object's mask
+   │    category-1 bg    │  postprocess_cat1.py — background redrawn in code
+   └──────────┬──────────┘  deterministic, before scoring, on every candidate
               │
    ┌──────────▼──────────┐
-   │ 6. Судья (VLM)      │◄─┐ 6 осей + 4 жёстких реджекта, выбор одного из N
+   │ 6. Judge (VLM)      │◄─┐ 6 axes + 4 hard rejects, picks one of N
    └──────────┬──────────┘  │
-              │             │ 7. Петля: 2 попытки сменой сида,
-              ├─────────────┘    3-я — переписывание промпта, лимит 3
+              │             │ 7. Retry: two attempts on a new seed,
+              ├─────────────┘    the third rewrites the prompt. Limit 3.
               │ accept
    ┌──────────▼──────────┐
-   │ 8. Сборка           │  final/ — принятое, review/ — отклонённое с причиной
-   └──────────┬──────────┘  manifest.json с метриками прогона
+   │ 8. Assembly         │  final/ ships, review/ holds what a human must see
+   └──────────┬──────────┘  manifest.json carries the run's metrics
               │
-        3–5 вариантов набора
+        3–5 variants of the set
 ```
 
-**Ядро автономности — слои 6 и 7.** Судья оценивает каждого кандидата против
-спецификации его карточки и выбирает одного. Отклонённая карточка не тупик:
-первые две попытки меняют только сид (обоснование — `runs/2026-08-15_seed-probe`,
-где 3 сида из 4 дают годную подачу на неизменном промпте), третья переписывает
-промпт против названного дефекта. К человеку уходит только то, что не прошло три
-попытки, — и уходит в `review/`, а не в набор.
+**Stages 6 and 7 are what make this a pipeline rather than a batch script.** The judge scores
+every candidate against the specification of its own card and picks one. A rejected card is
+not the end of the line: the first two attempts change only the seed — a seed sweep on a
+frozen prompt produced a correctly presented object on three seeds out of four, so most
+rejections are sampler noise rather than a fault in the wording — and the third attempt
+rewrites the prompt against the defect the judge named. Only what survives three attempts
+goes to a person, and it goes to `review/`, never into the set.
 
 ---
 
-## Структура
+## What is decided in code, and what is left to a model
+
+This split is the main design decision in the project, and every stage repeats it.
+
+**The model invents content only** — the object, the surface under it, the surrounding
+environment, the card's name, and which of three poses the object needs.
+
+**Everything else is assembled in Python** — the category of each slot, the background, the
+rarity, the framing clause, the style block and the final prompt. The brief requires all four
+object categories in every set; asked to distribute them itself, a language model drifts by
+the third call, so the slot plan is fixed before the request and handed to the model as a
+constraint.
+
+The same principle covers the content rules. "No weapons, ammunition, alcohol or tobacco" is
+stated in the ideation prompt **and** enforced by a regular expression over every object,
+name, surface and environment. The second half matters more than the first: a hard
+requirement is not left to a model's good word. When the check fires, the request is retried
+with the reason attached, so the model corrects rather than rerolls.
+
+---
+
+## Layout
 
 ```
-start.bat         запуск инструмента в один клик
-style/            style_bible.md, categories.json — источник правды по стилю
-prompts/          промпты идеации, судьи, ревью сета (markdown, версионируются)
-pipeline/         studio.py (интерфейс), orchestrator.py (сквозной прогон),
-                  set_designer.py (идеация и компиляция), batch_generate.py +
-                  comfy_client.py (генерация), judge.py (отбор и петля),
-                  reframe.py, postprocess_cat1.py (ремонт), lora_grid_test.py (пробы)
-docs/             README по каждому модулю
-runs/             прогоны: raw/, prepared/, selected/, final/, review/, manifest.json
-refs/             исходные референсы из ТЗ
-experiments.md    журнал: что пробовал, что не сработало, почему выбрал
+start.bat         launches the tool
+style/            style_bible.md, categories.json — the source of truth on style
+prompts/          ideation, judge and set-review prompts, versioned as markdown
+pipeline/         studio.py (interface), orchestrator.py (the run),
+                  set_designer.py (ideation and prompt assembly),
+                  batch_generate.py + comfy_client.py (generation),
+                  judge.py (scoring and the retry loop),
+                  reframe.py, postprocess_cat1.py (deterministic repairs),
+                  lora_grid_test.py (probes)
+docs/             one README per module, with the reasoning behind it
+runs/             runs: final/, review/, contact sheets, manifest.json
+experiments.md    the journal: what was tried, what failed, why each choice was made
 ```
 
-## Метрики
+## Metrics
 
-Каждый прогон пишет в `manifest.json`:
+Every run writes `manifest.json`:
 
-- `first_try_pass_rate` — доля карточек, принятых с первого сида
-- `generations_total` — сколько генераций потрачено на набор
-- `retried` / `recovered` — сколько карточек ушло в петлю и сколько она вернула
-- `retry_generations` / `amended` — цена петли: лишние генерации и переписанные промпты
-- `needs_review` — сколько карточек всё же ушло человеку
-- `wall_time_sec` — время прогона
+- `first_try_pass_rate` — share of cards accepted on their first seed
+- `generations_total` — images spent on the set
+- `retried` / `recovered` — how many cards entered the retry loop and how many it saved
+- `retry_generations` / `amended` — what the loop cost: extra images and rewritten prompts
+- `needs_review` — how many cards still went to a person
+- `wall_time_sec` — time per run
 
-Это то, что отличает продюсерское решение от художественного:
-пайплайн измерим и его стоимость предсказуема.
+This is what separates a producer's solution from an artist's one: the pipeline is measurable
+and its cost is predictable.
 
-## Статус
+## Status
 
-- [x] Слой 0 — style bible, категории
-- [x] Слой 1 — идеация: `set_designer.py`, слот-план категорий задан кодом
-- [x] Слой 2 — компиляция промптов: категория, поза, кадр, фон, стиль
-- [x] Выбор стиля — `Icon_3D_Flux.safetensors`, триггер `game_icon`, вес 0.8
-      (`runs/2026-08-14_lora-bakeoff`, `runs/2026-08-14_weight-sweep`)
-- [x] Слой 3 — ревью продюсера перед генерацией: `studio.py`
-- [x] Слой 4 — генерация: `batch_generate.py`, N кандидатов на карточку
-- [x] Слой 5 — ремонт кадра и фона: `reframe.py`, `postprocess_cat1.py`
-- [x] Слой 6 — судья: `judge.py`, 6 осей, 4 жёстких реджекта, метрики прогона
-- [x] Слой 7 — петля самокоррекции: пересид ×2, затем переписывание промпта
-- [x] Слой 8 — сборка: `final/` и `review/`, `manifest.json`
-- [x] Инструмент целиком — `orchestrator.py` + `studio.py`, одна кнопка
-- [ ] Прод-прогон: 3 сета «Кино-коллекции» (наборы спроектированы:
-      `runs/2026-08-14_kino-sets-v14`)
-- [ ] Ревью набора целиком: гармония палитры, разнообразие фонов и силуэтов
-      по контакт-листу — судья пока смотрит по одной карточке
+- [x] Style bible and categories
+- [x] Ideation with a category slot plan fixed in code
+- [x] Prompt assembly: category, pose, framing, background, style
+- [x] Style chosen by bake-off — `Icon_3D_Flux.safetensors`, trigger `game_icon`, weight 0.8
+- [x] Producer review before the GPU is touched
+- [x] Generation, N candidates per card
+- [x] Deterministic repairs: framing and the category-1 background
+- [x] Judge: 6 axes, 4 hard rejects, run metrics
+- [x] Retry loop: two re-seeds, then a prompt rewrite
+- [x] Assembly into `final/` and `review/`
+- [x] The tool itself — one button, and the same run from the command line
+- [ ] Set-level review: palette coherence, background variety and silhouette spread judged
+      across a whole variant. The judge currently looks at one card at a time
 
-Обучение собственной LoRA оказалось невозможным на 8 ГБ VRAM + 16 ГБ RAM —
-подробности в `experiments.md`. Стиль берётся из публичной LoRA.
+Training a LoRA of our own turned out to be impossible on 8 GB of VRAM and 16 GB of RAM —
+the details are in `experiments.md`. The style comes from a public LoRA instead.
 
-## Решения по контенту
+---
 
-Тема «Кино» провоцирует на узнаваемую IP. Осознанное решение:
-**жанровые архетипы вместо франшиз.** Запрет зашит в промпт идеации.
+## Content decisions
 
-**Возрастная политика.** В коллекции нет оружия, боеприпасов, гильз,
-алкоголя и табака — ни в одном жанре. Ограничение продиктовано
-рейтингом сторов: казуальная игра с такими предметами теряет
-возрастную категорию, ради которой и делается.
+A "cinema" theme invites recognisable IP. The deliberate choice was **genre archetypes rather
+than franchises**, and the ban is written into the ideation prompt.
 
-Жанр держится на безобидном реквизите, и это не обеднение, а точность:
+**Age rating.** The collection contains no weapons, ammunition, spent casings, alcohol or
+tobacco, in any genre. The constraint comes from the storefronts: a casual game carrying those
+props loses the age rating it is built for.
 
-- **Нуар** — лупа, дисковый телефон, папка с делом, федора, настольная
-  лампа, печатная машинка, тени от жалюзи
-- **Хоррор** — канделябр, музыкальная шкатулка, фарфоровая кукла,
-  карманные часы, старинное зеркало, бронзовый ключ
-- **Сай-фай** — шлем астронавта, звёздная карта, бортовой журнал,
-  космический компас, перчатка пилота, рация
+A genre holds together on harmless props, and this is precision rather than impoverishment:
 
-Запрет реализован в двух местах: как правило в системном промпте
-идеации и как проверка регулярным выражением в `validate()`. Второе
-важнее первого — жёсткое требование не отдаётся на честное слово
-языковой модели. При срабатывании проверки запрос повторяется, и
-модель получает причину отказа, а не просто переспрашивается.
+- **Noir** — a magnifying glass, a rotary telephone, a case file, a fedora, a desk lamp, a
+  typewriter, venetian-blind shadows
+- **Horror** — a candelabrum, a music box, a porcelain doll, a pocket watch, an antique
+  mirror, a bronze key
+- **Sci-fi** — an astronaut's helmet, a star chart, a ship's log, a navigation compass, a
+  pilot's glove, a handheld radio
+
+## A note on language
+
+Code, comments and documentation are in English. **Card names and set titles are generated in
+Russian on purpose** — they are product content for a Russian-language brief, not
+documentation. File names are built from the English object description instead, because a
+file name travels into git, into archives and into whatever picks these images up next:
+`03_cat2_black_rotary_desk_telephone.png`.
