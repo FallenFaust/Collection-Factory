@@ -1,0 +1,17 @@
+# Everything the pipeline actually imports, and nothing else.
+#
+# The list used to carry requests, python-dotenv and pydantic from the first day's sketch —
+# none of which the code ever used — while missing the three libraries it cannot start
+# without. A requirements file that is wrong in both directions is worse than none: it fails
+# at the first run and misleads about what the tool depends on.
+#
+# There is no API SDK here on purpose. Both model clients are ~40 lines of urllib against a
+# documented HTTP endpoint, which keeps the tool working when an SDK changes its interface.
+
+pillow>=10.0          # images: contact sheets, crops, background redraw
+numpy>=1.24           # colour clustering and mask arithmetic
+
+# Segmentation, used by reframe.py and postprocess_cat1.py. The first run downloads the
+# u2net model (~170 MB) and caches it.
+rembg>=2.0
+onnxruntime>=1.16     # rembg's runtime; swap for onnxruntime-gpu if you want it on the GPU

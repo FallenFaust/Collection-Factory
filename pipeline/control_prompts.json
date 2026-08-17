@@ -1,0 +1,50 @@
+[
+  {
+    "id": "cat1_float_gradient",
+    "trigger": true,
+    "note": "Category 1: simple object floating in the air, plain gradient background. The most fragile category: the LoRA was trained on environments and will try to invent a background.",
+    "text": "a striped red and white popcorn bucket full of popcorn, floating in the air, centered, no background objects, plain smooth blue to purple gradient background"
+  },
+  {
+    "id": "cat2_surface_flat_backdrop",
+    "trigger": true,
+    "note": "Category 2: object on a surface, simple vertical patterned backdrop behind it. Checks whether the flat backdrop survives or depth creeps in.",
+    "text": "a black and white clapperboard standing on a flat surface, behind it a simple vertical wall with soft diagonal light rays, plain warm background, no clutter"
+  },
+  {
+    "id": "cat3_real_surface_depth",
+    "trigger": true,
+    "note": "Category 3: realistic surface under the object, plain vertical plane behind. Intermediate depth — easily collapses into either a flat backdrop or a full environment.",
+    "text": "a vintage film camera on a tripod standing on a polished wooden floor, a plain painted wall with a soft gradient behind it, shallow depth, object centered"
+  },
+  {
+    "id": "cat4_full_environment",
+    "trigger": true,
+    "note": "Category 4: object embedded in a realistic environment while staying central. This is where the LoRA should be strongest.",
+    "text": "a red director's chair on a busy film set, studio lights, cameras and cables around it, the chair remains the central subject, warm cinematic lighting"
+  },
+  {
+    "id": "cat4_genre_scifi",
+    "trigger": true,
+    "note": "Genre stress test: sci-fi, night, neon. The film collection needs genres far outside the summer training set.",
+    "text": "a silver retro rocket ship model standing on a neon-lit spaceship deck at night, glowing control panels and holograms around it, the rocket remains central"
+  },
+  {
+    "id": "cat1_genre_horror",
+    "trigger": true,
+    "note": "Genre stress test on a simple background: dark palette plus category 1. Checks whether the LoRA drags everything back to the warm daylight of the training set.",
+    "text": "an old cursed VHS tape with a torn label, floating in the air, centered, plain dark green to black gradient background, eerie glow"
+  },
+  {
+    "id": "overfit_minimal",
+    "trigger": true,
+    "note": "Memorised-background detector. If the LoRA adds a beach, palm trees or clouds that the prompt never asked for, it learned the training backgrounds rather than the style.",
+    "text": "a single red apple on a wooden table, plain light background"
+  },
+  {
+    "id": "notrigger_control",
+    "trigger": false,
+    "note": "Same prompt without the trigger word. If the result barely differs from overfit_minimal, the style leaked into the base model and can no longer be controlled.",
+    "text": "a single red apple on a wooden table, plain light background"
+  }
+]

@@ -1,0 +1,29 @@
+# Share FluxGym's models with a standalone ComfyUI install.
+#
+# Only needed if ComfyUI was NOT installed through Pinokio. Pinokio-installed ComfyUI
+# already shares these folders with FluxGym through its drive/peer mechanism
+# (see the fs.link step in fluxgym.git/install.js).
+#
+# Install: copy this file to the ComfyUI root directory, next to main.py,
+# as `extra_model_paths.yaml`, then restart ComfyUI.
+#
+# Nothing is copied or downloaded — ComfyUI reads the model files in place.
+# Adjust base_path if FluxGym lives somewhere else.
+
+fluxgym:
+    base_path: E:/pinokio/api/fluxgym.git
+
+    # Flux transformer. ComfyUI 0.3+ calls this diffusion_models and keeps `unet`
+    # as a legacy alias; both are listed so either version works.
+    diffusion_models: models/unet
+    unet: models/unet
+
+    # t5xxl_fp16.safetensors + clip_l.safetensors
+    clip: models/clip
+
+    # ae.sft
+    vae: models/vae
+
+    # Trained LoRA checkpoints. FluxGym writes one subdirectory per training run,
+    # so they show up in ComfyUI as e.g. cardcollectionsg1/cardcollectionsg1-000004.safetensors
+    loras: outputs

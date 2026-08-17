@@ -1,0 +1,30 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Промежуточные стадии прогона: сырые генерации и всё, что из них выведено.
+# В репозитории остаётся только то, что читает человек: final/, review/,
+# контакт-листы, cards.json, manifest.json, judge_report.json.
+#
+# Шаблон с ** обязателен: раскладка прогона — runs/<прогон>/<набор>/variant_N/raw/,
+# и прежний runs/*/variant_*/raw/ мимо неё промахивался. Один прод-прогон из трёх
+# сетов — это 270 картинок только в raw/.
+runs/**/raw/
+runs/**/prepared/
+runs/**/selected/
+runs/**/framed/
+runs/**/clean/
+
+# Рабочие выходы стадий, живут локально
+sets/
+pipeline/lora_test_out/
+pipeline/style_probe_out/
+pipeline/shadow_probe_out/
+_to_delete/
+*.safetensors
+*.ckpt
+
+.DS_Store
+Thumbs.db

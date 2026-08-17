@@ -1,0 +1,53 @@
+{
+  "version": "0.1.0",
+  "note": "Категории 1-4 — обычные карточки. Категория 5 (золотые) в тестовом не используется.",
+  "set_distribution": { "1": 2, "2": 3, "3": 3, "4": 2 },
+  "categories": {
+    "1": {
+      "name": "Floating / flat background",
+      "object_rule": "Объект без мелких деталей, висит в воздухе, опоры нет",
+      "background_rule": "Одноцветный фон с градиентом либо простой узор: полосы, световые лучи, мелкий повторяющийся паттерн",
+      "prompt_fragment": "floating in mid-air with no support and no ground, against a flat solid gradient background with simple radial sunburst rays, no horizon line, no surface, no shadow beneath",
+      "judge_checks": [
+        "объект не касается никакой поверхности",
+        "под объектом нет контактной тени",
+        "фон плоский, без глубины и без линии горизонта"
+      ]
+    },
+    "2": {
+      "name": "On surface / simple background",
+      "object_rule": "Объект без мелких деталей, стоит на поверхности",
+      "background_rule": "Простая горизонтальная плоскость, позади — вертикальная плоскость: однотонная, с градиентом или с простым узором",
+      "prompt_fragment": "standing on a simple flat surface, plain vertical backdrop behind it in a smooth gradient, soft contact shadow under the object, minimal environment, no scenery",
+      "judge_checks": [
+        "объект стоит на плоскости",
+        "есть мягкая контактная тень",
+        "фон — простая плоскость без деталей окружения"
+      ]
+    },
+    "3": {
+      "name": "Realistic surface / volumetric background",
+      "object_rule": "Объект стоит или вписан в реалистичную поверхность",
+      "background_rule": "Объёмная реалистичная поверхность, позади — вертикальная плоскость, простая или с градиентом",
+      "prompt_fragment": "resting on a realistic textured surface with visible material and depth, simple vertical backdrop behind, soft depth of field, grounded composition, environment stays minimal",
+      "judge_checks": [
+        "поверхность имеет материал и объём",
+        "фон позади остаётся простым, не превращается в сцену",
+        "объект уверенно стоит, не парит"
+      ]
+    },
+    "4": {
+      "name": "In environment",
+      "object_rule": "Объект вписан в реалистичную окружающую обстановку, но остаётся центральным",
+      "background_rule": "Реалистичная среда, соответствующая объекту; объект доминирует в кадре",
+      "prompt_fragment": "placed within its natural realistic environment, the scene is readable but the object clearly dominates the frame and stays the focal point, background softly blurred",
+      "judge_checks": [
+        "среда читается и соответствует объекту",
+        "объект занимает не менее 55% высоты кадра",
+        "среда не перетягивает внимание, нет второго смыслового центра"
+      ]
+    }
+  },
+  "global_suffix": "stylized 3D render, mobile casual game collectible card art, glossy surfaces, chunky rounded forms, soft key light with rim light, vivid saturated candy colors, low detail, clean readable silhouette, square 1:1 composition, object centered and fully inside frame",
+  "negative": "text, letters, numbers, words, logo, watermark, signature, ui, frame, border, collage, grid, multiple objects, photorealistic, film grain, cinematic color grading, dark, desaturated, muddy, tiny details, cluttered, cropped object, human hands, brand, franchise character"
+}
