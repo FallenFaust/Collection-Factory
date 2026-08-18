@@ -64,15 +64,39 @@ instantly to every set already generated — no repeat LLM calls needed to chang
 
 ## Automatic checks
 
-The model's reply is validated before prompts are assembled; on failure the request is retried
-(`--retries`, default 2):
+The model's reply is validated before prompts are assembled, and the checks come in two
+strengths (`validate_split`). The distinction was bought with a lost run, described at the
+bottom of this section.
 
-* exactly 10 cards;
-* no duplicate objects within a variant;
+**Hard — the set is thrown away and the request retried** (`--retries`, default 2):
+
+* exactly 10 cards, each with a name, an object and a pose from the closed list;
 * category 3 cards have a surface, category 4 cards have an environment;
-* every card has a pose from the closed list;
 * the set palette is fully populated;
-* every card has a name.
+* no duplicate objects within a variant;
+* no banned content — weapons, ammunition, alcohol, tobacco;
+* no object whose identity is readable text;
+* no franchise or brand name in any field that becomes a prompt — see below.
+
+**Soft — the set is usable, so it is kept:** the variety limits below. They are sent back as
+feedback and the model gets **one** more attempt; if the set still comes back monotonous it
+ships with a warning in the log rather than being discarded.
+
+**What this cost to learn.** A real "Film Horror" run was rejected three times and the variant
+was dropped: `VHS` was read as a brand name (it is a format), `videotape cartridge` was read as
+ammunition, and "6 of 10 objects are brass" — a matter of quality — killed the set outright.
+Three rejections, three different reasons, nothing shipped. Two of them were the checks being
+wrong and the third was the wrong severity. So:
+
+* the franchise check now looks for **title case only**: `Millennium Falcon` is a franchise,
+  `VHS` and `LP` and `CRT` are acronyms;
+* `FALSE_ALARMS` excuses banned keywords inside phrases that make the innocent sense plain —
+  `videotape cartridge`, `glue gun`, `fan blade`, `letter opener`, `wine-red velvet`. The rule
+  for adding one: the phrase must be unambiguous on its own, which `cartridge` alone is not;
+* variety became soft, and its material limit went from 3 to 4.
+
+A check that fires on a correct set is worse than no check at all: it costs a retry, and the
+retry makes the model change something that was not broken.
 
 The list of objects already used is passed forward between variants, so variant 3 does not come
 back as a reshuffle of variant 1. That is what makes them "different readings of the theme"
@@ -104,6 +128,78 @@ without touching any set.
 variant, objects untouched, so the re-render stays directly comparable with the previous one.
 Without a key it falls back to a keyword list (`POSE_HINTS`), which is a stopgap and says so.
 
+## Variety inside a set
+
+A set can pass every other check and still be monotonous. A "Nautilus" run produced ten
+distinct objects of which **ten were brass** and four were round-faced: no duplicate strings,
+no banned content, nothing for the old checks to catch — and a set that read as one thing
+photographed ten times. A comedy set gave a party hat and a top hat, a juggling ball and a
+juggling pin.
+
+The objects differed in name and not in kind, so the rule is stated in terms of kinds:
+
+| Check | Limit |
+|---|---|
+| objects sharing a dominant material | 4 |
+| objects with the same head noun (hat / hat) | 1 |
+| round-faced objects — dials, mirrors, coins | 2 |
+| any other word shared across objects | 2 |
+
+The rule is written into the ideation prompt **and** checked here, for the same reason the
+content policy is: a requirement that matters is not left to a model's good word. When a check
+fires the request is repeated with the reason attached — "6 of 10 objects are brass, keep at
+most 4" — so the model corrects a named fault instead of rerolling.
+
+**These are soft checks.** Monotony is a quality problem, not a policy breach: the set gets one
+corrective attempt and then ships with the warning in the log. Discarding a whole variant over
+its palette of materials is a worse outcome than a slightly brassy set.
+
+One implementation note worth keeping. The first version of the word splitter used
+`w.strip(",.'s")`, which takes a *set* of characters: "brass" lost its final s and became
+"bras", "glass" became "gla", and the material check silently matched nothing on the very set
+that motivated it. Suffixes are stripped explicitly now.
+
+## Franchise homages
+
+A cinema collection that may not touch a single famous film is weaker than it needs to be:
+recognition is half of what makes a card collectible. So the rule is not "no franchises" but
+**no copies** — with `--homages` (a checkbox in the tool) up to four of the ten cards may quote
+a film, and the quote is redrawn as our own object.
+
+What "stylised" means, as the ideation prompt states it:
+
+* quote the **archetype**, not the artefact — the kind of object a film made famous, designed
+  again as ours: a battered brown felt fedora, not a screen-accurate replica of one;
+* change at least one identifying feature: proportion, colour, material or ornament;
+* drop everything that identifies the rights holder — logos, emblems, insignia, lettering,
+  serial numbers, one character's house colours;
+* no character likenesses, no vehicle or ship whose silhouette *is* the trademark;
+* the Russian card name may allude — «Шляпа археолога» — but carries no trademarked title.
+
+**The reference never reaches the image generator.** It is stored in the card's own `homage`
+field, shown at the review step, written to `cards.json`, `prompts.csv` and the run manifest,
+and left out of the prompt entirely. Two reasons point the same way. Legally, an archetype is
+not owned and a specific prop design is. Technically, a franchise name makes Flux reproduce a
+still: "Indiana Jones' hat" comes back as a poster — lettering, a face, a collage — while "a
+battered brown felt fedora with a sweat-stained band" comes back as a card.
+
+That is why `object`, `surface` and `environment` are checked for proper nouns. Any **title-case**
+word that is not an era or a place (`ALLOWED_CAPS` — Victorian, Art Deco, Bakelite, Fresnel…)
+fails validation with an instruction to move the name into `homage`. Title case, not any
+capital: a franchise reads "Millennium Falcon", while an all-capital word in a prop description
+is an acronym — VHS, LP, CRT — and rejecting a horror set over the letters VHS is exactly what
+the first version did. The heuristic is
+deliberately loud: a false positive costs one retry, a miss costs a prompt that asks the
+generator to draw a trademark. The same check runs over the producer's own edits at the review
+step, but there it only warns — at that point the producer is the authority.
+
+Two things this stage cannot do, and where they are handled instead. A Russian card name
+carrying a franchise title is not machine-checkable, so it is a prompt rule plus the review
+step. And the generator may stamp a studio-looking emblem on an object nobody asked to brand —
+that is a hard reject in the judge, which is the only stage that looks at the picture.
+
+The content policy is not suspended for homages: a famous weapon is still a weapon.
+
 ## Rarity
 
 Assigned in code: 4 common, 3 uncommon, 2 rare, 1 epic, shuffled by seed (`--seed`). It does not
@@ -124,6 +220,7 @@ Russian-language Miro board, not documentation.
 | `--provider` | `anthropic` or `openai`; defaults to whichever key is present |
 | `--model` | specific model; also read from `CARDGEN_MODEL` |
 | `--trigger` | LoRA trigger word, `LORACCG` by default |
+| `--homages` | allow up to 4 stylised nods to famous films; off by default |
 | `--offline` | run the pipeline on the built-in demo set without an API key |
 
 `OPENAI_BASE_URL` overrides the endpoint, which is how any OpenAI-compatible provider gets

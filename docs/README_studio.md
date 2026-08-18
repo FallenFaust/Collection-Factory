@@ -21,6 +21,11 @@ working unattended.
 Anthropic and OpenAI keys are both accepted; the provider is read from the key's prefix rather
 than asked for in a dropdown.
 
+**Allow franchise homages** is off by default. Switched on, up to four cards in the set may be
+stylised nods to famous films — the archetype redrawn as our own object, never a replica, and
+the reference recorded next to the card rather than sent to the image generator. The reasoning,
+and what the checks can and cannot catch, is in `docs/README_set_designer.md`.
+
 ## What one press does
 
 ```

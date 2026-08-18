@@ -244,7 +244,8 @@ def produce(theme: str, wishes: str = "", variants: int = 3, seeds_per_card: int
             use_judge: bool = True, url: str = "http://127.0.0.1:8188",
             lora: str = DEFAULT_LORA, weight: float = DEFAULT_WEIGHT,
             base_seed: int = 1001, target_coverage: float = 0.78,
-            slots: dict | None = None, api_key: str = "", on_designed=None,
+            slots: dict | None = None, api_key: str = "", homages: bool = False,
+            on_designed=None,
             max_attempts: int = MAX_ATTEMPTS, resume: str = "",
             run: Run | None = None) -> dict:
     """One producer request, start to finish. Returns the run manifest."""
@@ -278,7 +279,8 @@ def produce(theme: str, wishes: str = "", variants: int = 3, seeds_per_card: int
         run.enter("design", variants)
         run.say(f"Theme: {theme}" + (f"; wishes: {wishes}" if wishes else ""))
         plan = set_designer.design_set(theme, wishes, variants, out=root, offline=offline,
-                                       slots=slots, api_key=api_key, progress=run.say)
+                                       slots=slots, api_key=api_key, homages=homages,
+                                       progress=run.say)
         set_root = Path(plan["root"])
         run.done = len(plan["variants"])
 
@@ -437,7 +439,8 @@ def produce(theme: str, wishes: str = "", variants: int = 3, seeds_per_card: int
                 dest.write_bytes(found[0].read_bytes())
                 entry = {"variant": payload["variant"], "n": card["n"], "name": card["name"],
                          "category": card["category"], "rarity": card["rarity"],
-                         "pose": card.get("pose", ""), "file": str(dest), "from_stage": stage}
+                         "pose": card.get("pose", ""), "homage": card.get("homage", ""),
+                         "file": str(dest), "from_stage": stage}
                 (out_cards if ok else out_review).append(entry)
                 break
         run.done += 1
@@ -448,6 +451,7 @@ def produce(theme: str, wishes: str = "", variants: int = 3, seeds_per_card: int
         "theme": theme, "wishes": wishes, "run_dir": str(set_root),
         "variants": len(plan["variants"]), "seeds_per_card": seeds_per_card,
         "slots": plan.get("slots", {}),
+        "homages": bool(plan.get("homages", False)),
         "generation": {"lora": Path(cfg.lora).name, "weight": weight,
                        "steps": 20, "guidance": 3.5, "size": "832x928"},
         "metrics": {**metrics, "wall_time_sec": round(time.time() - run.started),
@@ -485,6 +489,9 @@ def main() -> None:
     ap.add_argument("--weight", type=float, default=DEFAULT_WEIGHT)
     ap.add_argument("--slots", default="",
                     help="set composition by category, e.g. 2,2,3,3")
+    ap.add_argument("--homages", action="store_true",
+                    help="allow a few cards to be stylised nods to famous films; the "
+                         "reference is recorded, never sent to the image generator")
     ap.add_argument("--offline", action="store_true", help="no LLM: use the built-in demo set")
     ap.add_argument("--no-judge", action="store_true", help="skip the judge stage")
     ap.add_argument("--attempts", type=int, default=MAX_ATTEMPTS,
@@ -495,7 +502,7 @@ def main() -> None:
     try:
         produce(cfg.theme, cfg.wishes, cfg.variants, cfg.seeds_per_card, cfg.out, cfg.run_id,
                 cfg.offline, not cfg.no_judge, cfg.url, cfg.lora, cfg.weight,
-                slots=set_designer.parse_slots(cfg.slots),
+                slots=set_designer.parse_slots(cfg.slots), homages=cfg.homages,
                 max_attempts=max(1, cfg.attempts), resume=cfg.resume)
     except KeyboardInterrupt:
         sys.exit("\nInterrupted.")

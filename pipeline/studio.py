@@ -122,6 +122,10 @@ button:disabled { opacity:.45; cursor:default }
     <div><span>3 · on a surface</span><input id="s3" type="number" min="0" max="10" value="3"></div>
     <div><span>4 · in a setting</span><input id="s4" type="number" min="0" max="10" value="3"></div>
   </div>
+  <label class="check"><input type="checkbox" id="homages">
+    Allow franchise homages <span class="hint">— up to 4 cards may nod to a famous film,
+    stylised as our own object. The reference is recorded next to the card and never sent
+    to the image generator.</span></label>
   <label class="check"><input type="checkbox" id="judge" checked>
     Check with the judge <span class="hint" id="judgehint"></span></label>
   <div class="actions">
@@ -217,6 +221,9 @@ async function showReview() {
         <button class="more" title="prompt">≡</button>
       </div>
       <div class="prompt" style="display:none">
+        <div class="hint" style="margin-bottom:4px">Homage — the film this card nods to.
+          A note for the set list; it is never sent to the image generator.</div>
+        <input class="f-homage" value="${esc(c.homage)}" placeholder="none">
         <textarea class="f-prompt">${esc(c.prompt)}</textarea>
       </div>`;
     });
@@ -239,6 +246,7 @@ function collectEdits() {
     name: row.querySelector(".f-name").value,
     object: row.querySelector(".f-object").value,
     pose: row.querySelector(".f-pose").value,
+    homage: row.nextElementSibling.querySelector(".f-homage").value,
     prompt: row.nextElementSibling.querySelector(".f-prompt").value,
   }));
 }
@@ -346,7 +354,8 @@ async function start(resume) {
   const r = await (await fetch("/api/start", {method:"POST", body: JSON.stringify({
     theme:$("theme").value || "resumed run", wishes:$("wishes").value,
     variants:+$("variants").value, seeds:+$("seeds").value,
-    judge:$("judge").checked, key:$("key").value.trim(), resume: resume || "",
+    judge:$("judge").checked, homages:$("homages").checked,
+    key:$("key").value.trim(), resume: resume || "",
     slots:{1:+$("s1").value, 2:+$("s2").value, 3:+$("s3").value, 4:+$("s4").value} })})).json();
   if (r.error) { $("err").textContent = r.error; return; }
   $("go").disabled = true; $("stop").style.display = "";
@@ -426,7 +435,8 @@ def start_run(params: dict) -> dict:
                 params["theme"], params.get("wishes", ""), variants, seeds,
                 out=STATE["root"], offline=bool(params.get("offline")),
                 use_judge=params.get("judge", True) is not False,
-                slots=slots, api_key=key, on_designed=on_designed,
+                slots=slots, api_key=key,
+                homages=bool(params.get("homages")), on_designed=on_designed,
                 resume=resume, run=run)
         except Exception as e:
             # The page is the only place a producer looks, so the failure has to arrive there
@@ -479,7 +489,7 @@ class Handler(BaseHTTPRequestHandler):
                     "set_title": payload.get("set_title", ""),
                     "concept": payload.get("concept", ""),
                     "cards": [{k: c.get(k, "") for k in
-                               ("card_id", "n", "name", "object", "pose", "category",
+                               ("card_id", "n", "name", "object", "homage", "pose", "category",
                                 "rarity", "surface", "environment", "bg_style", "prompt")}
                               for c in payload["cards"]],
                 })

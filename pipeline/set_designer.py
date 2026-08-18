@@ -290,6 +290,134 @@ TEXT_DEPENDENT = re.compile(
     r")\b"
 )
 
+# Both lists above are keyword lists, and a keyword list fires on the wrong sense of a word.
+# Measured on a real run: a horror set was rejected three times, and two of the three
+# rejections were the checks being wrong — "a black plastic videotape cartridge" was read as
+# ammunition, and «VHS» was read as a brand. A check that fails on correct sets is worse than
+# no check: it costs a retry, and the model fixes the wrong thing next time.
+#
+# So the banned senses are excused where the phrase makes the sense plain. The rule for adding
+# to this list: the phrase must be unambiguous on its own. "videotape cartridge" is; "cartridge"
+# is not, which is why the word stays banned outside these phrases.
+FALSE_ALARMS = re.compile(
+    r"(?i)\b("
+    r"videotape cartridge|video cartridge|tape cartridge|film cartridge|game cartridge|"
+    r"ink cartridge|printer cartridge|toner cartridge|cassette cartridge|"
+    r"glue gun|spray gun|nail gun|water gun|heat gun|"
+    r"fan blade|propeller blade|turbine blade|saw blade|shoulder blade|blade of grass|"
+    r"wine red|wine-red|wine coloured|wine colored|wine velvet|"
+    r"letter opener|letter rack|letter seal|letter scale|"
+    r"magazine rack|magazine holder"
+    r")\b"
+)
+
+
+def excused(text: str, hit: re.Match) -> bool:
+    """True when a banned keyword sits inside a phrase that makes its innocent sense plain."""
+    return any(m.start() <= hit.start() and m.end() >= hit.end()
+               for m in FALSE_ALARMS.finditer(text))
+
+# --------------------------------------------------------------------------- #
+# Franchise homages
+# --------------------------------------------------------------------------- #
+#
+# A cinema collection that may not touch a single famous film is weaker than it needs to be:
+# half of what makes a film prop collectible is that the player recognises it. The rule is
+# therefore not "no franchises" but "no copies" — the set may quote a film, and the quote has
+# to be redrawn as our own object.
+#
+# Two separate reasons, and they push the same way:
+#
+#   Legal — a specific prop design, a logo, an emblem, a costume and a character likeness
+#   belong to their rights holder. An archetype does not: a bullwhip and a battered brown
+#   fedora are not owned by anyone, a helmet with *that* silhouette is.
+#
+#   Technical — naming a franchise in the image prompt makes the generator try to reproduce
+#   a still. Flux answers "Indiana Jones' hat" with a poster: lettering, a face, a montage,
+#   and none of it is a single clean prop on a plain background. The same card asked for as
+#   "a battered brown felt fedora with a sweat-stained band" comes back usable.
+#
+# So the franchise name is producer-facing metadata (`homage`, kept in cards.json and shown
+# at the review step) and never enters the prompt. The `object` field stays a generic English
+# noun phrase, which is what the whole prompt assembly already expects.
+HOMAGE_LIMIT = 4
+
+HOMAGE_RULE_ON = """- **Franchise homages are allowed, as stylised nods — never as copies.** Up to {limit} of
+  the ten cards may quote a famous film; the rest carry the theme on their own. A homage is
+  built like this:
+  * quote the ARCHETYPE, not the artefact. Take the kind of object a film made famous and
+    design our own version of it: a battered brown felt fedora, a bullwhip coiled on a
+    leather belt, a dented silver hip-lamp — not a screen-accurate replica of the prop;
+  * change at least one identifying feature — proportion, colour, material or ornament — so
+    the object reads as ours;
+  * drop everything that identifies the rights holder: logos, emblems, insignia, lettering,
+    numbers, serial markings, house colours worn by one specific character;
+  * no character likenesses, no faces, no vehicle or ship whose silhouette *is* the
+    trademark;
+  * **never name the film, the studio, the character or the actor in the `object`, `surface`
+    or `environment` fields.** Those go to the image generator, and a generator given a
+    franchise name reproduces a poster — lettering, a face, a collage — instead of one clean
+    prop. Describe the object by its shape, material and one telling detail.
+  * put the reference in the card's `homage` field, in English, for the producer's records:
+    "Indiana Jones — the fedora". Leave it as an empty string for a card that is a pure
+    archetype.
+  * the Russian card name may allude — «Шляпа археолога» — but must not use a trademarked
+    title or character name.
+  The content policy above still applies to homages without exception: a famous weapon is
+  still a weapon and does not enter the set."""
+
+HOMAGE_RULE_OFF = """- **No franchise references.** No named films, studios, characters or actors, and no prop
+  whose recognisability comes from one specific film. The set is built on genre archetypes:
+  what the genre looks like, not what one picture in it looked like. Leave every `homage`
+  field as an empty string."""
+
+# Words that are capitalised in a perfectly generic English noun phrase. Everything else that
+# comes back capitalised inside `object` is a proper noun — which, at this stage, means a
+# franchise or a brand that has to move to the `homage` field before the prompt is compiled.
+# This is a heuristic and it is deliberately a loud one: the cost of a false positive is one
+# retry, the cost of a miss is a prompt that asks Flux to draw a trademark.
+ALLOWED_CAPS = {
+    "art", "deco", "nouveau", "victorian", "edwardian", "georgian", "regency", "gothic",
+    "baroque", "rococo", "roman", "greek", "egyptian", "aztec", "mayan", "norse", "viking",
+    "celtic", "japanese", "chinese", "korean", "indian", "persian", "turkish", "moroccan",
+    "russian", "french", "italian", "spanish", "german", "dutch", "english", "british",
+    "american", "mexican", "african", "arctic", "atlantic", "pacific", "earth", "mars",
+    "moon", "polaroid", "bakelite", "fresnel", "morse", "geiger", "petri", "tesla",
+    "faraday", "erlenmeyer", "phillips", "allen", "swiss", "west", "east", "north", "south",
+}
+# Title case only, on purpose. A franchise reads "Millennium Falcon", not "MILLENNIUM FALCON",
+# while an all-capital word in a prop description is almost always a generic acronym: VHS, LP,
+# CRT, UV, SOS. The first run with this check rejected a horror set over «VHS» — a format, not
+# a brand. All-capital words are left to the review step and to the judge.
+CAPITALISED = re.compile(r"\b([A-Z][a-z]{2,})")
+TRADEMARK_MARKS = re.compile(r"[™®©]")
+
+
+def naming_problems(index: int, card: dict) -> list[str]:
+    """Catch a franchise name sitting in a field that is about to become an image prompt.
+
+    `homage` is exempt: that field exists precisely to hold the name. Everything else here
+    is compiled into the prompt verbatim.
+    """
+    problems = []
+    for key in ("object", "surface", "environment"):
+        text = str(card.get(key, "")).strip()
+        if not text:
+            continue
+        if TRADEMARK_MARKS.search(text):
+            problems.append(f"card {index}: a trademark mark in `{key}` — the field goes "
+                            f"into the image prompt and must stay a plain description")
+        for word in CAPITALISED.findall(text[1:] if text[:1].isupper() else text):
+            if word.lower() in ALLOWED_CAPS:
+                continue
+            problems.append(
+                f"card {index}: «{word}» in `{key}` looks like a franchise or brand name. "
+                f"That field is sent to the image generator, which answers a franchise name "
+                f"with a movie poster. Move the reference to `homage` and describe the "
+                f"object itself — shape, material, one telling detail")
+    return problems
+
+
 # How many cards of each category a set contains. The brief's own sets are ten cards with all
 # four categories present, which is the default; the composition is a parameter because a
 # producer designing a collection has reason to weight it differently — a set built around
@@ -442,10 +570,29 @@ Rules:
   and a neon sign are all WRONG. A lantern, a telephone handset, a folded map and a brass
   key are right. This holds for category 4 as well: there the prop is *placed in* a setting,
   it is not the setting.
-- Objects within a set must not repeat or be variations of each other
-  (not "a red camera" and "a blue camera").
+- **A set is ten different KINDS of thing, not ten names for one thing.** This is the rule
+  that gets broken most often, and it is not about repeated words. A "Nautilus" set came back
+  as a brass compass, a brass barometer, a brass depth gauge, a brass sextant, a brass bell,
+  a brass lantern and a brass telescope: ten distinct names, one material, three of them the
+  same round dial. Nothing in it repeated, and the set was still monotonous. So, within one
+  set:
+  * **materials must vary** — no more than four objects sharing a dominant material. Mix
+    brass with wood, glass, fabric, ceramic, leather, paper, stone, enamel;
+  * **silhouettes must vary** — no more than two round-faced objects, no two objects of the
+    same family (not a juggling ball and a juggling pin, not a party hat and a top hat, not
+    a jester's staff and a jester's collar);
+  * **scale must vary** — something that fits in a palm, something held in two hands,
+    something the size of a suitcase.
+- **The producer's wishes set the mood, not a single material or motif.** "Nautilus" means
+  deep-sea Victorian adventure — brass instruments *and* a diving suit's canvas glove, a
+  coral specimen, a hand-drawn chart, a cork-stoppered vial. Taking one word literally and
+  applying it to all ten cards is the failure mode, not the goal.
+- **Give each object one distinguishing detail**, not a bare noun. "A brass compass" is a
+  placeholder; "a brass compass with a cracked enamel dial" is a card. Keep it to a short
+  noun phrase, but let that phrase carry a material, a colour or one telling feature.
 - The object must be instantly recognisable by its silhouette.
-- For categories 1 and 2 the object must be simple, without small details.
+- For categories 1 and 2 the object must be simple, without small details. This is about the
+  object's geometry, not about the description: a simple shape can still be a specific thing.
 - The object description is in English: a short noun phrase, with no background or lighting.
 - The card name is in RUSSIAN, 1-3 words, lively rather than bureaucratic.
 - **The name must not claim attributes the object description does not state.** If the name
@@ -488,6 +635,8 @@ This is variant {variant} of {total}. It must be an independent interpretation o
 not a reshuffle of the previous ones.
 {avoid}
 
+{homage_rule}
+
 Build a set of exactly 10 cards following this slot plan (keep the order):
 {slots}
 
@@ -512,7 +661,8 @@ Return JSON:
     {{
       "slot": 1,
       "name": "card name in Russian",
-      "object": "short english noun phrase",
+      "object": "short english noun phrase — no film, studio, character or actor names",
+      "homage": "the film this card nods to, in English, or an empty string",
       "pose": "front | upright | three_quarter — see the pose rule",
       "surface": "category 3 only, empty string otherwise",
       "environment": "category 4 only, with an article, empty string otherwise"
@@ -523,7 +673,7 @@ Return JSON:
 
 def ask_variant(llm: LLM, theme: str, wishes: str, variant: int, total: int,
                 used: list[str], problems: list[str] | None = None,
-                plan: list[int] | None = None) -> dict:
+                plan: list[int] | None = None, homages: bool = False) -> dict:
     slots = "\n".join(
         f"  card {i+1}: category {c} — {CATEGORY_DOC[c]}"
         for i, c in enumerate(plan or SLOT_PLAN)
@@ -535,6 +685,7 @@ def ask_variant(llm: LLM, theme: str, wishes: str, variant: int, total: int,
     user = USER_TMPL.format(
         theme=theme, wishes=wishes or "no particular wishes",
         variant=variant, total=total, slots=slots, avoid=avoid,
+        homage_rule=(HOMAGE_RULE_ON.format(limit=HOMAGE_LIMIT) if homages else HOMAGE_RULE_OFF),
     )
     # A retry that simply re-rolls the same request tends to repeat the same mistake.
     # Telling the model what failed turns the retry into a correction.
@@ -547,11 +698,36 @@ def ask_variant(llm: LLM, theme: str, wishes: str, variant: int, total: int,
 # --------------------------------------------------------------------------- #
 # Validation and prompt assembly
 # --------------------------------------------------------------------------- #
-def validate(data: dict, plan: list[int] | None = None) -> list[str]:
-    problems = []
+def validate(data: dict, plan: list[int] | None = None,
+             homages: bool = False) -> list[str]:
+    """Every problem in one list. `validate_split` is what the pipeline uses."""
+    hard, soft = validate_split(data, plan, homages)
+    return hard + soft
+
+
+def validate_split(data: dict, plan: list[int] | None = None,
+                   homages: bool = False) -> tuple[list[str], list[str]]:
+    """Problems, separated into the ones that must fail a set and the ones that only warn.
+
+    The distinction cost a real run to learn. A horror set was rejected three times and
+    skipped entirely: once for a check that was wrong, once for a check that was wrong, and
+    once for "6 of 10 objects are brass" — which is a matter of quality, not of policy.
+    Losing the whole variant over it is the wrong trade.
+
+    **Hard** — the set is unusable or breaks a promise made to the client: banned content, an
+    object made of text, a franchise name heading for the image prompt, a missing field, the
+    wrong number of cards. These fail the set.
+
+    **Soft** — the set would ship, but it could be better: monotonous materials, repeated
+    silhouettes, one motif circled. These are sent back as feedback on the next attempt, and
+    if the model still will not fix them, the set is used with a warning in the log.
+    """
+    hard: list[str] = []
+    soft: list[str] = []
     cards = data.get("cards")
     if not isinstance(cards, list):
-        return ["no cards list"]
+        return ["no cards list"], []
+    problems = hard
     plan = plan or SLOT_PLAN
     if len(cards) != len(plan):
         problems.append(f"got {len(cards)} cards, expected {len(plan)}")
@@ -573,12 +749,12 @@ def validate(data: dict, plan: list[int] | None = None) -> list[str]:
         blob = (f"{obj} {c.get('name', '')} "
                 f"{c.get('surface', '')} {c.get('environment', '')}")
         txt = TEXT_DEPENDENT.search(obj)
-        if txt:
+        if txt and not excused(obj, txt):
             problems.append(
                 f"card {i+1}: '{txt.group(0)}' in '{obj}' is an object made of text — "
                 f"the generator cannot render readable words, so it would come out as "
                 f"gibberish. Replace it with a prop that reads by its shape")
-        hit = BANNED_CONTENT.search(blob)
+        hit = next((m for m in BANNED_CONTENT.finditer(blob) if not excused(blob, m)), None)
         if hit:
             problems.append(
                 f"card {i+1}: forbidden content '{hit.group(0)}' in '{obj}' — "
@@ -593,7 +769,23 @@ def validate(data: dict, plan: list[int] | None = None) -> list[str]:
             problems.append(f"card {i+1}: category 3 without a surface")
         if cat == 4 and not str(c.get("environment", "")).strip():
             problems.append(f"card {i+1}: category 4 without an environment")
-    return problems
+        problems += naming_problems(i + 1, c)
+
+    # The homage budget is a set-level property, so it is counted here rather than asked of
+    # the model card by card. Ten quotes in a row is a film quiz; a few is a collection with
+    # something to recognise in it.
+    quoted = [str(c.get("homage", "")).strip() for c in cards[: len(plan)]]
+    quoted = [q for q in quoted if q]
+    if not homages and quoted:
+        problems.append(f"{len(quoted)} cards carry a franchise homage, and this set was "
+                        f"ordered without them — rebuild those cards as genre archetypes")
+    elif len(quoted) > HOMAGE_LIMIT:
+        problems.append(f"{len(quoted)} of the cards are franchise homages, at most "
+                        f"{HOMAGE_LIMIT} may be — the rest must carry the theme on their own")
+
+    soft += variety_problems([str(c.get("object", "")).strip()
+                              for c in cards if str(c.get("object", "")).strip()])
+    return hard, soft
 
 
 def guess_pose(obj: str) -> str:
@@ -642,6 +834,113 @@ def ask_poses(llm: LLM, objects: list[str]) -> list[str]:
     if bad:
         raise ValueError(f"unknown pose(s): {', '.join(sorted(set(bad)))}")
     return poses
+
+
+# --------------------------------------------------------------------------- #
+# Variety inside one set
+# --------------------------------------------------------------------------- #
+#
+# A set can pass every other check and still be monotonous. The "Nautilus" run produced ten
+# distinct objects of which nine were brass and three were round dials: no duplicates, no
+# banned content, nothing to catch — and a set that reads as one thing photographed ten times.
+#
+# The rule lives in the ideation prompt too, but it lives here as well for the same reason the
+# content policy does: a requirement that matters is not left to a model's good word. When a
+# check fires the request is retried with the reason attached, so the model corrects a named
+# fault rather than rolling the dice again.
+MATERIALS = ("brass", "bronze", "copper", "silver", "gold", "golden", "steel", "iron",
+             "chrome", "wooden", "wood", "oak", "mahogany", "leather", "velvet", "silk",
+             "porcelain", "ceramic", "glass", "crystal", "paper", "stone", "marble",
+             "enamel", "plastic", "canvas", "wicker", "tin", "pewter")
+
+# Objects whose identity is a round face. More than two of them and a set turns into a wall
+# of dials — the exact defect the Nautilus run had.
+ROUND_FACED = ("compass", "barometer", "gauge", "clock", "watch", "dial", "mirror",
+               "medallion", "locket", "coin", "plate", "disc", "record", "porthole")
+
+# Words too common to mean anything when shared between two objects.
+NEUTRAL = {"a", "an", "the", "with", "and", "of", "small", "large", "old", "antique",
+           "vintage", "ornate", "polished", "bright", "dark", "light", "round", "tall",
+           "red", "blue", "green", "yellow", "black", "white", "brown", "grey", "gray",
+           "orange", "purple", "pink", "teal", "amber", "handles", "handle"}
+
+# Four of ten, not three. Three is a defensible target and a bad threshold: a set with four
+# brass objects is a themed set, and rejecting it costs a retry that usually breaks something
+# else. These are soft limits — see `validate_split` — so the number decides when the model
+# gets told to try again, not when a variant is thrown away.
+MAX_SAME_MATERIAL = 4
+MAX_ROUND_FACED = 2
+
+
+def clean_words(obj: str) -> list[str]:
+    """Words of a noun phrase, punctuation and plurals removed.
+
+    `strip(",.'s")` was the first attempt and it is a trap: strip takes a SET of characters,
+    so "brass" lost its final s and became "bras", "glass" became "gla", and the material
+    check silently matched nothing. Suffixes are stripped explicitly instead.
+    """
+    out = []
+    for raw in re.split(r"[\s,]+", obj.lower()):
+        w = raw.strip(".,;:!?\"'()")
+        if w.endswith("'s") or w.endswith("\u2019s"):
+            w = w[:-2]
+        if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+            w = w[:-1]                      # ribbons -> ribbon, keeps brass and glass intact
+        if w:
+            out.append(w)
+    return out
+
+
+# A trailing clause hides the head noun: "a brass telescope with a leather grip" ends on
+# "grip", which is not what the card is of. Cutting at the first preposition puts the head
+# back where it belongs.
+TAIL = re.compile(r"\b(with|in|of|on|under|inside|holding|wrapped|tied|filled)\b")
+
+
+def head_noun(obj: str) -> str:
+    """The head of a noun phrase — "a brass telescope with a leather grip" -> "telescope"."""
+    words = clean_words(TAIL.split(obj.lower())[0])
+    for w in reversed(words):
+        if w not in NEUTRAL and len(w) > 2:
+            return w
+    return words[-1] if words else ""
+
+
+def variety_problems(objects: list[str]) -> list[str]:
+    """What makes this set monotonous, in words the model can act on."""
+    problems = []
+    if len(objects) < 3:
+        return problems
+    words = [clean_words(o) for o in objects]
+
+    counts = collections.Counter(m for ws in words for m in set(ws) if m in MATERIALS)
+    for material, n in counts.items():
+        if n > MAX_SAME_MATERIAL:
+            problems.append(
+                f"{n} of {len(objects)} objects are {material} — a set needs varied materials; "
+                f"keep at most {MAX_SAME_MATERIAL} and replace the rest with wood, glass, "
+                f"fabric, ceramic, leather or paper")
+
+    heads = collections.Counter(head_noun(o) for o in objects)
+    for noun, n in heads.items():
+        if n > 1 and noun:
+            same = [o for o in objects if head_noun(o) == noun]
+            problems.append(f"{n} objects are the same kind of thing ({noun}): "
+                            f"{', '.join(same)} — replace all but one")
+
+    dials = [o for o in objects if any(r in o.lower() for r in ROUND_FACED)]
+    if len(dials) > MAX_ROUND_FACED:
+        problems.append(f"{len(dials)} objects are round-faced ({', '.join(dials)}) — "
+                        f"keep at most {MAX_ROUND_FACED}, the rest of the set needs other "
+                        f"silhouettes")
+
+    shared = collections.Counter(w for ws in words for w in set(ws)
+                                 if w not in NEUTRAL and w not in MATERIALS and len(w) > 3)
+    for word, n in shared.items():
+        if n >= 3:
+            problems.append(f"the word «{word}» appears in {n} objects — the set is circling "
+                            f"one motif instead of covering the theme")
+    return problems
 
 
 def cat1_background(pal: dict, key: str) -> str:
@@ -701,6 +1000,9 @@ def build_cards(data: dict, set_id: str, variant: int, trigger: str, seed: int,
             "n": i + 1,
             "name": str(raw["name"]).strip(),
             "object": str(raw["object"]).strip(),
+            # Producer-facing only: what the card nods to. Deliberately absent from the
+            # prompt — see the homage block above.
+            "homage": str(raw.get("homage", "")).strip(),
             # kept so prompts can be recompiled later without asking the model again
             "surface": str(raw.get("surface", "")).strip(),
             "environment": str(raw.get("environment", "")).strip(),
@@ -818,6 +1120,11 @@ def rebuild_variant(cards_json: Path, llm: LLM | None = None,
 
 EDITABLE = ("name", "object", "pose", "surface", "environment", "bg_style")
 
+# Fields the producer can change that are not part of any prompt. They are saved, and they
+# do not trigger a recompile — a note about which film a card nods to cannot alter a picture,
+# and treating it as content would silently unlock a hand-written prompt.
+METADATA = ("homage",)
+
 
 def apply_edits(root: Path, edits: list[dict]) -> tuple[int, list[str]]:
     """Apply the producer's changes to a designed set, then recompile its prompts.
@@ -834,11 +1141,15 @@ def apply_edits(root: Path, edits: list[dict]) -> tuple[int, list[str]]:
     touched, notes = 0, []
     for cards_json in sorted(Path(root).glob("**/variant_*/cards.json")):
         payload = json.loads(cards_json.read_text(encoding="utf-8"))
-        changed = False
+        changed = noted = False
         for card in payload["cards"]:
             edit = by_id.get(card["card_id"])
             if not edit:
                 continue
+            for key in METADATA:
+                if key in edit and str(edit[key]).strip() != str(card.get(key, "")).strip():
+                    card[key] = str(edit[key]).strip()
+                    noted = True
             for key in EDITABLE:
                 if key in edit and str(edit[key]).strip() != str(card.get(key, "")).strip():
                     card[key] = str(edit[key]).strip()
@@ -846,6 +1157,11 @@ def apply_edits(root: Path, edits: list[dict]) -> tuple[int, list[str]]:
             if card.get("pose") not in POSE_TEMPLATES:
                 notes.append(f"{card['card_id']}: unknown pose, falling back to the keyword list")
                 card["pose"] = guess_pose(card["object"])
+            # A warning, not a veto: at this step the producer is the authority, and a name
+            # they typed on purpose is their call. But an edited object goes into the prompt
+            # unchanged, so a franchise name arriving this way has to be said out loud.
+            for problem in naming_problems(int(card.get("n", 0)), card):
+                notes.append(f"{card['card_id']}: {problem.split(': ', 1)[-1]}")
             prompt = str(edit.get("prompt", "")).strip()
             if prompt and prompt != card.get("prompt", "").strip():
                 card["prompt"] = prompt
@@ -854,9 +1170,10 @@ def apply_edits(root: Path, edits: list[dict]) -> tuple[int, list[str]]:
             elif changed:
                 card.pop("prompt_locked", None)     # content edited: let it recompile
             touched += 1 if changed else 0
-        if changed:
+        if changed or noted:
             cards_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
                                   encoding="utf-8")
+        if changed:
             _, more, _ = rebuild_variant(cards_json)
             notes += more
     return touched, notes
@@ -1000,7 +1317,8 @@ def slugify(s: str) -> str:
 def design_set(theme: str, wishes: str = "", variants: int = 3, out: str | Path = "sets",
                set_id: str = "", trigger: str = TRIGGER, seed: int = 7, retries: int = 2,
                offline: bool = False, provider: str = "", model: str = "",
-               slots: dict | None = None, api_key: str = "", progress=None) -> dict:
+               slots: dict | None = None, api_key: str = "", homages: bool = False,
+               progress=None) -> dict:
     """Theme and wishes in, a designed set of N variants on disk out. Returns the plan.
 
     Extracted from main() when the orchestrator appeared: a stage that can only be reached
@@ -1017,11 +1335,17 @@ def design_set(theme: str, wishes: str = "", variants: int = 3, out: str | Path 
 
     used: list[str] = []
     doc = {"theme": theme, "wishes": wishes, "set_id": set_id, "trigger": trigger,
-           "slots": {str(c): plan.count(c) for c in (1, 2, 3, 4)}, "variants": []}
+           "slots": {str(c): plan.count(c) for c in (1, 2, 3, 4)},
+           "homages": bool(homages), "variants": []}
 
     for v in range(1, variants + 1):
         say(f"Variant {v} of {variants}: designing the set")
+        # Two exit conditions, not one. A set with no problems at all is taken immediately;
+        # a set whose only faults are soft is kept as a fallback and the model is asked once
+        # more for a tidier one. Only a hard fault throws the reply away — and only a hard
+        # fault on every attempt loses the variant.
         data, problems = None, ["not requested"]
+        best, best_soft, soft_tries = None, [], 0
         for attempt in range(retries + 1):
             if offline:
                 data = json.loads(json.dumps(OFFLINE))
@@ -1030,17 +1354,34 @@ def design_set(theme: str, wishes: str = "", variants: int = 3, out: str | Path 
             else:
                 try:
                     data = ask_variant(llm, theme, wishes, v, variants, used,
-                                       problems if attempt else None, plan)
+                                       problems if attempt else None, plan, homages)
                 except Exception as e:
                     say(f"  attempt {attempt+1}: the request failed — {e}")
                     continue
-            problems = validate(data, plan)
-            if not problems:
+            hard, soft = validate_split(data, plan, homages)
+            problems = hard + soft
+            if hard:
+                for p in hard:
+                    say(f"  attempt {attempt+1}: set rejected — {p}")
+                continue
+            if best is None or len(soft) < len(best_soft):
+                best, best_soft = data, soft
+            if not soft:
                 break
-            say(f"  attempt {attempt+1}: set rejected — {problems[0]}")
-        if problems:
+            for p in soft:
+                say(f"  attempt {attempt+1}: {p}")
+            # One re-ask on a soft fault, not three. A model that has been told twice that
+            # its set is monotonous and has not fixed it will not fix it on the third call
+            # either, and the calls are the producer's money.
+            soft_tries += 1
+            if soft_tries > 1:
+                break
+        if best is None:
             say(f"  variant {v} skipped: no valid set could be obtained")
             continue
+        data = best
+        for p in best_soft:
+            say(f"  kept with a warning: {p}")
 
         cards = build_cards(data, set_id, v, trigger, seed + v, plan)
         used += [c["object"].lower() for c in cards]
@@ -1073,13 +1414,15 @@ def design_set(theme: str, wishes: str = "", variants: int = 3, out: str | Path 
 
 
 def write_prompts_csv(path: Path, cards: list[dict]) -> None:
-    """Only the columns the generation stage reads. A card carries more fields than that —
-    pose, surface, environment, bg_style — and csv refuses unknown keys."""
-    fields = ["card_id", "n", "name", "object", "category", "rarity", "prompt", "negative"]
+    """The columns the generation stage reads, plus `homage` for the producer's records.
+    A card carries more fields than that — pose, surface, environment, bg_style — and csv
+    refuses unknown keys."""
+    fields = ["card_id", "n", "name", "object", "homage", "category", "rarity",
+              "prompt", "negative"]
     with path.open("w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
-        w.writerows({k: c[k] for k in fields} for c in cards)
+        w.writerows({k: c.get(k, "") for k in fields} for c in cards)
 
 
 def main() -> None:
@@ -1103,6 +1446,10 @@ def main() -> None:
                          "(one request per variant). Content is untouched")
     ap.add_argument("--slots", default="",
                     help="set composition by category, e.g. 2,2,3,3 — the default is the same")
+    ap.add_argument("--homages", action="store_true",
+                    help=f"allow up to {HOMAGE_LIMIT} cards to be stylised nods to famous "
+                         f"films. The reference is recorded in the card's `homage` field and "
+                         f"never enters the image prompt")
     ap.add_argument("--offline", action="store_true", help="no API: use the built-in demo set")
     cfg = ap.parse_args()
 
@@ -1118,7 +1465,8 @@ def main() -> None:
     try:
         plan = design_set(cfg.theme, cfg.wishes, cfg.variants, cfg.out, cfg.set_id,
                           cfg.trigger, cfg.seed, cfg.retries, cfg.offline,
-                          cfg.provider, cfg.model, parse_slots(cfg.slots))
+                          cfg.provider, cfg.model, parse_slots(cfg.slots),
+                          homages=cfg.homages)
     except RuntimeError as e:
         sys.exit(f"\n{e}")
     print(f"\nDone: {len(plan['variants'])} variant(s) in {plan['root']}")

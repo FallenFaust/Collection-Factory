@@ -102,6 +102,14 @@ object categories in every set; asked to distribute them itself, a language mode
 the third call, so the slot plan is fixed before the request and handed to the model as a
 constraint.
 
+The same split decides what happens with famous films. A set may quote one — up to four cards
+of ten, switched on per run — but the quote is the *archetype* redrawn as our own object, and
+the reference itself is metadata: it is recorded on the card and never sent to the image
+generator. That is a legal line and a practical one at once. A prop design, an emblem and a
+character likeness are owned; a battered brown fedora is not. And a generator given a franchise
+name answers with a poster — lettering, a face, a collage — instead of one clean prop.
+`docs/README_set_designer.md` has the rule and the checks that hold it.
+
 The same principle covers the content rules. "No weapons, ammunition, alcohol or tobacco" is
 stated in the ideation prompt **and** enforced by a regular expression over every object,
 name, surface and environment. The second half matters more than the first: a hard

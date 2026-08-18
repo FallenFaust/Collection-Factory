@@ -1,27 +1,20 @@
 .env
 
-# Внутренние заметки: статус работ, обоснование контентных правил, соглашение
-# по языку. Нужны команде, а не заказчику, поэтому живут рядом, но вне репозитория.
+# Internal notes: work status, the reasoning behind the content rules, the language
+# convention. The team needs them, the client does not — so they live next to the
+# repository rather than inside it.
 internal.md
 __pycache__/
 *.pyc
 .venv/
 venv/
 
-# Промежуточные стадии прогона: сырые генерации и всё, что из них выведено.
-# В репозитории остаётся только то, что читает человек: final/, review/,
-# контакт-листы, cards.json, manifest.json, judge_report.json.
-#
-# Шаблон с ** обязателен: раскладка прогона — runs/<прогон>/<набор>/variant_N/raw/,
-# и прежний runs/*/variant_*/raw/ мимо неё промахивался. Один прод-прогон из трёх
-# сетов — это 270 картинок только в raw/.
-runs/**/raw/
-runs/**/prepared/
-runs/**/selected/
-runs/**/framed/
-runs/**/clean/
+# Runs. A single production run of three sets is a few hundred images, and the tool
+# regenerates them from the theme in one press — so the output is not what this
+# repository is for. The code, the prompts and the journal are.
+runs/
 
-# Рабочие выходы стадий, живут локально
+# Working output of individual stages, kept locally
 sets/
 pipeline/lora_test_out/
 pipeline/style_probe_out/

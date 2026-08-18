@@ -53,6 +53,11 @@ AXES = {
 HARD_REJECTS = (
     "readable text, lettering or numbers used as an object's identity",
     "a weapon, ammunition, a cartridge case, alcohol, a cigarette or an ashtray",
+    # A set may nod to a famous film, but the nod is redrawn as our own object. What must
+    # never reach the client is the rights holder's own mark, and it is the generator that
+    # adds one: asked for a fedora, Flux occasionally stamps a studio-looking emblem on the
+    # band. The ideation stage cannot catch that — only something looking at the picture can.
+    "a real brand logo, studio emblem, franchise insignia or copied character likeness",
     "more than one subject in the frame",
     "the object cropped by the frame edge",
 )
